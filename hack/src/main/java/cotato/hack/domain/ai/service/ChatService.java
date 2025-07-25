@@ -83,4 +83,16 @@ public class ChatService {
 			throw new RuntimeException("Failed to parse GPT response", e);
 		}
 	}
+
+	public String getChatResponse(String prompt) {
+		ChatGPTRequest request = new ChatGPTRequest(model, prompt);
+		
+		ChatGPTResponse gptResponse = template.postForObject(apiURL, request, ChatGPTResponse.class);
+		
+		if (gptResponse != null && gptResponse.getChoices() != null && !gptResponse.getChoices().isEmpty()) {
+			return gptResponse.getChoices().get(0).getMessage().getContent();
+		}
+		
+		throw new RuntimeException("GPT 응답을 받을 수 없습니다.");
+	}
 }
