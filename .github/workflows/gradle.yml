@@ -24,9 +24,6 @@ jobs:
         touch ./src/main/resources/application-common.yml
         echo -e "${{ secrets.COMMON_YML }}" > ./src/main/resources/application-common.yml
 
-        touch ./src/main/resources/application-test.yml
-        echo -e "${{ secrets.TEST_YML }}" > ./src/main/resources/application-test.yml
-
     # ✅ 환경별 application-main.yml 또는 application-dev.yml 설정
     - run: |
         if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
