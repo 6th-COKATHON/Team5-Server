@@ -34,13 +34,13 @@ jobs:
         fi
 
     - name: Set Gradle Wrapper executable permission
-      run: chmod +x ./gradlew
+      run: chmod +x ./hack/gradlew
       
     - name: Run tests with CI profile
-      run: ./gradlew test -Dspring.profiles.active=test,common
+      run: ./hack/gradlew test -Dspring.profiles.active=test,common
 
     - name: Build with Gradle Wrapper
-      run: ./gradlew build
+      run: ./hack/gradlew build
 
     - name: Copy to DEV EC2
       if: github.ref == 'refs/heads/develop'
@@ -50,7 +50,7 @@ jobs:
         username: ${{ secrets.EC2_USERNAME }}
         key: ${{ secrets.DEV_EC2_PEM }}
         port: 22
-        source: ./build/libs/*.jar
+        source: ./hack/build/libs/*.jar
         target: /home/ubuntu/cicd
         strip_components: 2
     - name: Copy to MAIN EC2
