@@ -2,7 +2,7 @@ name: Java CI with Gradle
 
 on:
   push:
-    branches: [ "main"]
+    branches: [ "main" ]
 
 jobs:
   build-deploy:
@@ -19,15 +19,12 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # ✅ 공통 application-common.yml, ci.yml 생성
-    - run: |
-        touch ./hack/src/main/resources/application-common.yml
+    # ✅ config 파일 생성
+    - name: Create application.yml
+      run: |
+        mkdir -p ./hack/src/main/resources
         echo -e "${{ secrets.COMMON_YML }}" > ./hack/src/main/resources/application-common.yml
-
-    # ✅ 환경별 application-main.yml 또는 application-dev.yml 설정
-    - run: |
         if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
-          touch ./hack/src/main/resources/application-main.yml
           echo "${{ secrets.MAIN_YML }}" > ./hack/src/main/resources/application-main.yml
         else
           echo "${{ secrets.DEV_YML }}" > ./hack/src/main/resources/application-dev.yml
@@ -39,30 +36,19 @@ jobs:
     - name: Build with Gradle Wrapper
       run: ./hack/gradlew build
 
-    - name: Copy to DEV EC2
-      if: github.ref == 'refs/heads/develop'
-      uses: appleboy/scp-action@v0.1.4
-      with:
-        host: ${{ secrets.DEV_EC2_HOST }}
-        username: ${{ secrets.EC2_USERNAME }}
-        key: ${{ secrets.DEV_EC2_PEM }}
-        port: 22
-        source: ./hack/build/libs/*.jar
-        target: /home/ubuntu/cicd
-        strip_components: 2
+    # ✅ main 브랜치 jar 파일 EC2로 복사
     - name: Copy to MAIN EC2
-      if: github.ref == 'refs/heads/master'
+      if: github.ref == 'refs/heads/main'
       uses: appleboy/scp-action@v0.1.4
       with:
         host: ${{ secrets.MAIN_EC2_HOST }}
         username: ${{ secrets.EC2_USERNAME }}
         key: ${{ secrets.MAIN_EC2_PEM }}
         port: 22
-        source: ./build/libs/*.jar
+        source: ./hack/build/libs/*.jar
         target: /home/ubuntu/cicd
         strip_components: 2
-    
-    # ✅ main 브랜치: MAIN 서버에 스크립트 복사 및 실행
+
     - name: Copy deploy script file to MAIN EC2
       if: github.ref == 'refs/heads/main'
       uses: appleboy/scp-action@v0.1.4
@@ -73,7 +59,7 @@ jobs:
         source: ".github/workflows/deploy_main.sh"
         target: "/home/ubuntu/cicd"
         strip_components: 2
-    
+
     - name: Execute deploy script on MAIN EC2
       if: github.ref == 'refs/heads/main'
       uses: appleboy/ssh-action@v0.1.10
