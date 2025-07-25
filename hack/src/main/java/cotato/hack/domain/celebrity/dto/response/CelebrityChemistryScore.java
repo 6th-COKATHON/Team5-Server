@@ -17,7 +17,4 @@ public class CelebrityChemistryScore {
     
     @Schema(description = "케미점수", example = "92")
     private int chemistryScore;
-    
-    @Schema(description = "케미 타입명", example = "달콤한 허니케미")
-    private String chemistryType;
 }

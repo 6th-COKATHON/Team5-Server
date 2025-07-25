@@ -73,65 +73,112 @@ public class CelebrityService {
             throw new IllegalArgumentException("선택된 연예인이 존재하지 않습니다.");
         }
         
-        // 모든 연예인과의 케미점수 계산
-        List<CelebrityChemistryScore> allScores = new ArrayList<>();
-        
-        for (Celebrity celebrity : selectedCelebrities) {
-            CelebrityChemistryScore score = calculateChemistryScore(celebrity, request.getPersonalityType().getName());
-            allScores.add(score);
-        }
+        // 모든 연예인과의 케미점수만 간단히 계산 (동점 방지)
+        List<CelebrityChemistryScore> allScores = calculateAllChemistryScores(selectedCelebrities, request.getPersonalityType().getName());
         
         // 점수 순으로 정렬하여 가장 높은 점수의 연예인 찾기
-        CelebrityChemistryScore bestMatch = allScores.stream()
-            .max(Comparator.comparingInt(CelebrityChemistryScore::getChemistryScore))
-            .orElseThrow(() -> new IllegalStateException("케미점수 계산에 실패했습니다."));
+        CelebrityChemistryScore bestMatch = allScores.get(0); // 이미 정렬되어 있음
         
         // 가장 잘 맞는 연예인에 대해서만 상세 분석 진행
         String detailedAnalysisPrompt = createDetailedAnalysisPrompt(bestMatch.getCelebrityName(), request.getPersonalityType().getName());
         String detailedAnalysisResult = chatService.getChatResponse(detailedAnalysisPrompt);
         
+        String bestChemistryName = extractChemistryName(detailedAnalysisResult);
         String detailedAnalysis = extractAnalysis(detailedAnalysisResult);
         String advice = extractAdvice(detailedAnalysisResult);
         
         return CelebrityMatchResponse.builder()
             .allChemistryScores(allScores)
             .bestMatchCelebrityName(bestMatch.getCelebrityName())
-            .bestChemistryName(bestMatch.getChemistryType())
+            .bestChemistryName(bestChemistryName)
             .bestCompatibilityScore(bestMatch.getChemistryScore())
             .detailedAnalysis(detailedAnalysis)
             .advice(advice)
             .build();
     }
 
-    // 개별 연예인과의 케미점수 계산
-    private CelebrityChemistryScore calculateChemistryScore(Celebrity celebrity, String personalityType) {
-        String scorePrompt = createScoreCalculationPrompt(celebrity.getName(), personalityType);
-        String scoreResult = chatService.getChatResponse(scorePrompt);
+    // 모든 연예인과의 케미점수 계산 (동점 방지)
+    private List<CelebrityChemistryScore> calculateAllChemistryScores(List<Celebrity> celebrities, String personalityType) {
+        String allScoresPrompt = createAllScoresPrompt(celebrities, personalityType);
+        String allScoresResult = chatService.getChatResponse(allScoresPrompt);
         
-        int score = extractScore(scoreResult);
-        String chemistryType = extractChemistryName(scoreResult);
+        List<CelebrityChemistryScore> scores = parseAllScores(allScoresResult, celebrities);
         
-        return new CelebrityChemistryScore(
-            celebrity.getId(),
-            celebrity.getName(),
-            score,
-            chemistryType
-        );
+        // 점수 순으로 정렬 (높은 점수부터)
+        scores.sort((a, b) -> Integer.compare(b.getChemistryScore(), a.getChemistryScore()));
+        
+        return scores;
     }
     
-    // 케미점수만 계산하는 간단한 프롬프트
-    private String createScoreCalculationPrompt(String celebrityName, String personalityType) {
+    // 모든 연예인의 점수를 한번에 계산하는 프롬프트 (동점 방지)
+    private String createAllScoresPrompt(List<Celebrity> celebrities, String personalityType) {
+        StringBuilder celebrityList = new StringBuilder();
+        for (int i = 0; i < celebrities.size(); i++) {
+            celebrityList.append(String.format("%d. %s\n", i + 1, celebrities.get(i).getName()));
+        }
+        
         return String.format("""
             사용자 성격: %s
-            연예인: %s
             
-            위 조합의 연애 케미점수와 케미 타입명만 간단히 답변하세요:
+            다음 연예인들과의 케미점수를 계산해주세요 (동점 없이):
+            %s
             
-            형식:
-            케미 타입: "창의적인 케미명"
-            케미 점수: 숫자만 (예: 92)
-            """, personalityType, celebrityName);
+            각 연예인마다 70-98점 사이의 서로 다른 점수를 매겨주세요.
+            동점이 나오지 않도록 모든 점수는 다르게 해주세요.
+            
+            형식 (번호 순서대로):
+            1: 점수
+            2: 점수
+            3: 점수
+            ...
+            
+            예시:
+            1: 95
+            2: 88
+            3: 82
+            """, personalityType, celebrityList.toString());
     }
+    
+    // 모든 점수 파싱
+    private List<CelebrityChemistryScore> parseAllScores(String result, List<Celebrity> celebrities) {
+        List<CelebrityChemistryScore> scores = new ArrayList<>();
+        String[] lines = result.split("\n");
+        
+        for (String line : lines) {
+            if (line.matches("\\d+:\\s*\\d+")) {
+                String[] parts = line.split(":");
+                int index = Integer.parseInt(parts[0].trim()) - 1; // 1-based to 0-based
+                int score = Integer.parseInt(parts[1].trim());
+                
+                if (index >= 0 && index < celebrities.size()) {
+                    Celebrity celebrity = celebrities.get(index);
+                    scores.add(new CelebrityChemistryScore(
+                        celebrity.getId(),
+                        celebrity.getName(),
+                        score
+                    ));
+                }
+            }
+        }
+        
+        // 파싱 실패 시 기본 점수 부여 (동점 방지)
+        if (scores.size() != celebrities.size()) {
+            scores.clear();
+            for (int i = 0; i < celebrities.size(); i++) {
+                Celebrity celebrity = celebrities.get(i);
+                // 90부터 시작해서 2씩 감소 (동점 방지)
+                int score = 90 - (i * 2);
+                scores.add(new CelebrityChemistryScore(
+                    celebrity.getId(),
+                    celebrity.getName(),
+                    score
+                ));
+            }
+        }
+        
+        return scores;
+    }
+    
     
     // 상세 분석을 위한 프롬프트
     private String createDetailedAnalysisPrompt(String celebrityName, String personalityType) {
@@ -141,10 +188,10 @@ public class CelebrityService {
             
             위 조합의 연애 궁합을 상세히 분석하여 다음 형식으로 답변하세요:
             
-            케미 분석: 3-4문장의 상세한 궁합 분석 (약 200자)
-            조언1: 첫 번째 관계 발전 조언
-            조언2: 두 번째 관계 발전 조언
-            조언3: 세 번째 관계 발전 조언
+            케미 분석: 3-4문장의 상세한 궁합 분석
+            조언1: 첫 번째 관계 발전 조언(40자 이내)
+            조언2: 두 번째 관계 발전 조언(40자 이내)
+            조언3: 세 번째 관계 발전 조언(40자 이내)
             """, personalityType, celebrityName);
     }
     
