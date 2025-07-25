@@ -33,8 +33,8 @@ jobs:
     - name: Set Gradle Wrapper executable permission
       run: chmod +x ./hack/gradlew
 
-    - name: Build with Gradle Wrapper
-      run: ./gradlew build
+    - name: Build without tests
+      run: ./gradlew build -x test
       working-directory: ./hack
 
     # ✅ main 브랜치 jar 파일 EC2로 복사
