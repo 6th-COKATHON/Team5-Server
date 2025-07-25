@@ -48,7 +48,7 @@ public class CelebrityController {
     }
     
     @PostMapping("/match")
-    @Operation(summary = "연예인 궁합 분석", description = "선택한 연예인들과 성격 유형을 바탕으로 궁합을 분석합니다")
+    @Operation(summary = "연예인 궁합 분석", description = "선택한 모든 연예인들과의 케미점수를 계산하고, 가장 잘 맞는 연예인에 대해 상세 분석을 제공합니다")
     public AppResponse<CelebrityMatchResponse> analyzeCelebrityMatch(
             @Valid @RequestBody CelebrityMatchRequest request
     ) {

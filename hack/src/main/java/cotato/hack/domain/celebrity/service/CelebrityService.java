@@ -4,6 +4,7 @@ import cotato.hack.domain.ai.service.ChatService;
 import cotato.hack.domain.celebrity.dto.request.CelebrityMatchRequest;
 import cotato.hack.domain.celebrity.dto.request.CelebritySaveRequest;
 import cotato.hack.domain.celebrity.dto.response.CelebrityListResponse;
+import cotato.hack.domain.celebrity.dto.response.CelebrityChemistryScore;
 import cotato.hack.domain.celebrity.dto.response.CelebrityMatchResponse;
 import cotato.hack.domain.celebrity.dto.response.CelebritySaveResponse;
 import cotato.hack.domain.celebrity.entity.Celebrity;
@@ -15,8 +16,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Random;
 
 @Service
 @RequiredArgsConstructor
@@ -63,7 +65,7 @@ public class CelebrityService {
                 .build();
     }
 
-    // 연예인 궁합 분석
+    // 연예인 궁합 분석 - 모든 연예인과의 케미점수 계산
     public CelebrityMatchResponse analyzeCelebrityMatch(CelebrityMatchRequest request) {
         List<Celebrity> selectedCelebrities = celebrityRepository.findAllById(request.getCelebrityIds());
         
@@ -71,58 +73,86 @@ public class CelebrityService {
             throw new IllegalArgumentException("선택된 연예인이 존재하지 않습니다.");
         }
         
-        Celebrity bestMatch = selectedCelebrities.get(new Random().nextInt(selectedCelebrities.size()));
+        // 모든 연예인과의 케미점수 계산
+        List<CelebrityChemistryScore> allScores = new ArrayList<>();
         
-        String gptPrompt = createAnalysisPrompt(bestMatch.getName(), request.getPersonalityType().getName());
-        String analysisResult = chatService.getChatResponse(gptPrompt);
-        System.out.println(analysisResult);
+        for (Celebrity celebrity : selectedCelebrities) {
+            CelebrityChemistryScore score = calculateChemistryScore(celebrity, request.getPersonalityType().getName());
+            allScores.add(score);
+        }
         
-        return parseAnalysisResult(analysisResult, bestMatch.getName());
+        // 점수 순으로 정렬하여 가장 높은 점수의 연예인 찾기
+        CelebrityChemistryScore bestMatch = allScores.stream()
+            .max(Comparator.comparingInt(CelebrityChemistryScore::getChemistryScore))
+            .orElseThrow(() -> new IllegalStateException("케미점수 계산에 실패했습니다."));
+        
+        // 가장 잘 맞는 연예인에 대해서만 상세 분석 진행
+        String detailedAnalysisPrompt = createDetailedAnalysisPrompt(bestMatch.getCelebrityName(), request.getPersonalityType().getName());
+        String detailedAnalysisResult = chatService.getChatResponse(detailedAnalysisPrompt);
+        
+        String detailedAnalysis = extractAnalysis(detailedAnalysisResult);
+        String advice = extractAdvice(detailedAnalysisResult);
+        
+        return CelebrityMatchResponse.builder()
+            .allChemistryScores(allScores)
+            .bestMatchCelebrityName(bestMatch.getCelebrityName())
+            .bestChemistryName(bestMatch.getChemistryType())
+            .bestCompatibilityScore(bestMatch.getChemistryScore())
+            .detailedAnalysis(detailedAnalysis)
+            .advice(advice)
+            .build();
     }
 
-    // GPT 궁합 분석 프롬프트 생성
-    private String createAnalysisPrompt(String celebrityName, String personalityType) {
+    // 개별 연예인과의 케미점수 계산
+    private CelebrityChemistryScore calculateChemistryScore(Celebrity celebrity, String personalityType) {
+        String scorePrompt = createScoreCalculationPrompt(celebrity.getName(), personalityType);
+        String scoreResult = chatService.getChatResponse(scorePrompt);
+        
+        int score = extractScore(scoreResult);
+        String chemistryType = extractChemistryName(scoreResult);
+        
+        return new CelebrityChemistryScore(
+            celebrity.getId(),
+            celebrity.getName(),
+            score,
+            chemistryType
+        );
+    }
+    
+    // 케미점수만 계산하는 간단한 프롬프트
+    private String createScoreCalculationPrompt(String celebrityName, String personalityType) {
         return String.format("""
             사용자 성격: %s
             연예인: %s
             
-            위 조합의 연애 궁합을 분석하여 다음 형식으로 답변하세요:
-            
-            케미명: "창의적인 케미명"
-            점수: 숫자만 (예: 92)
-            분석: 3문장의 궁합 분석, 총 150자 정도
-            조언: 3개의 관계 발전 조언
+            위 조합의 연애 케미점수와 케미 타입명만 간단히 답변하세요:
             
             형식:
-            우리 케미명: "케미명"
-            케미 점수: 점수점
-            케미 분석: 분석 내용
-            조언1: 첫 번째 조언
-            조언2: 두 번째 조언  
-            조언3: 세 번째 조언
+            케미 타입: "창의적인 케미명"
+            케미 점수: 숫자만 (예: 92)
             """, personalityType, celebrityName);
     }
     
-    private CelebrityMatchResponse parseAnalysisResult(String analysisResult, String celebrityName) {
-        String chemistryName = extractChemistryName(analysisResult);
-        int score = extractScore(analysisResult);
-        String analysis = extractAnalysis(analysisResult);
-        String advice = extractAdvice(analysisResult);
-
-        return CelebrityMatchResponse.builder()
-                .celebrityName(celebrityName)
-                .chemistryName(chemistryName)
-                .compatibilityScore(score)
-                .analysis(analysis)
-                .advice(advice)
-                .build();
+    // 상세 분석을 위한 프롬프트
+    private String createDetailedAnalysisPrompt(String celebrityName, String personalityType) {
+        return String.format("""
+            사용자 성격: %s
+            연예인: %s
+            
+            위 조합의 연애 궁합을 상세히 분석하여 다음 형식으로 답변하세요:
+            
+            케미 분석: 3-4문장의 상세한 궁합 분석 (약 200자)
+            조언1: 첫 번째 관계 발전 조언
+            조언2: 두 번째 관계 발전 조언
+            조언3: 세 번째 관계 발전 조언
+            """, personalityType, celebrityName);
     }
     
     private String extractChemistryName(String text) {
         try {
             String[] lines = text.split("\n");
             for (String line : lines) {
-                if (line.contains("우리 케미명:") || line.contains("케미명:")) {
+                if (line.contains("케미 타입:") || line.contains("우리 케미명:") || line.contains("케미명:")) {
                     int startIndex = line.indexOf("\"");
                     int endIndex = line.lastIndexOf("\"");
                     if (startIndex != -1 && endIndex != -1 && startIndex < endIndex) {
