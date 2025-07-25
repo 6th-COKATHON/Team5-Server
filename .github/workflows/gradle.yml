@@ -34,7 +34,8 @@ jobs:
       run: chmod +x ./hack/gradlew
 
     - name: Build with Gradle Wrapper
-      run: ./hack/gradlew build
+      run: ./gradlew build
+      working-directory: ./hack
 
     # ✅ main 브랜치 jar 파일 EC2로 복사
     - name: Copy to MAIN EC2
